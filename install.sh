@@ -162,6 +162,47 @@ else
     fi
 fi
 
+# --- Patch venv/bin/activate for strict-shell compatibility ---
+# Python 3.5 (Debian 9) generates an activate script that references
+# $_OLD_VIRTUAL_PATH, $_OLD_VIRTUAL_PYTHONHOME, $_OLD_VIRTUAL_PS1, and $PS1
+# without the ${VAR:-} default-value guard.  When this script is sourced
+# inside a shell that already has 'set -u' active (nounset), bash treats any
+# reference to an unset variable as a fatal error — hence:
+#   line 6: _OLD_VIRTUAL_PATH: unbound variable
+# The fix: rewrite all bare references to the safe ${VAR:-} form before
+# sourcing the activate script. This is idempotent — running it on an
+# already-patched (or modern) script is safe because sed simply finds
+# nothing to replace.
+patch_activate() {
+    local activate_script="$1"
+    if [ ! -f "$activate_script" ]; then
+        warn "activate script not found at $activate_script — skipping patch."
+        return 0
+    fi
+    # Replace bare $VAR with ${VAR:-} for variables that may be unset when
+    # the activate script is first sourced in a non-interactive / strict shell:
+    #   $_OLD_VIRTUAL_PATH       — not yet set on first activation
+    #   $_OLD_VIRTUAL_PYTHONHOME — not yet set on first activation
+    #   $_OLD_VIRTUAL_PS1        — not yet set on first activation
+    #   $PS1                     — not set in non-interactive shells (systemd, etc.)
+    #   $1                       — bare positional inside deactivate() in older templates
+    # Word-boundary anchors prevent double-patching ${VAR:-} that is already correct.
+    sed -i \
+        -e 's/"\$_OLD_VIRTUAL_PATH"/"\${_OLD_VIRTUAL_PATH:-}"/g' \
+        -e 's/"\$_OLD_VIRTUAL_PYTHONHOME"/"\${_OLD_VIRTUAL_PYTHONHOME:-}"/g' \
+        -e 's/"\$_OLD_VIRTUAL_PS1"/"\${_OLD_VIRTUAL_PS1:-}"/g' \
+        -e 's/"\$PS1"/"\${PS1:-}"/g' \
+        -e 's/\$PS1"/\${PS1:-}"/g' \
+        -e 's/" \$1 "/" \${1:-} "/g' \
+        -e 's/"\$VIRTUAL_ENV_DISABLE_PROMPT"/"\${VIRTUAL_ENV_DISABLE_PROMPT:-}"/g' \
+        "$activate_script"
+    ok "activate script patched for set -u compatibility."
+}
+
+# Apply the patch regardless of whether the venv was just created or already
+# existed — an existing venv on the Moxa device may still have the old script.
+patch_activate "$VENV_DIR/bin/activate"
+
 # Activate the virtualenv for the remaining steps
 # shellcheck disable=SC1090
 source "$VENV_DIR/bin/activate"

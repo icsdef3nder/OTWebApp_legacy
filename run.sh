@@ -87,6 +87,42 @@ if [ "$PYTHON_MINOR" -lt 5 ]; then
     exit 1
 fi
 
+# --- Patch venv/bin/activate for strict-shell compatibility ---
+# Python 3.5 (Debian 9) generates an activate script that references
+# $_OLD_VIRTUAL_PATH, $_OLD_VIRTUAL_PYTHONHOME, $_OLD_VIRTUAL_PS1, and $PS1
+# without the ${VAR:-} default-value guard.  When this script is sourced
+# inside a shell that already has 'set -u' active (nounset), bash treats any
+# reference to an unset variable as a fatal error — hence:
+#   line 6: _OLD_VIRTUAL_PATH: unbound variable
+# The fix: rewrite all bare references in the activate script to the safe
+# ${VAR:-} form immediately after venv creation and before sourcing it.
+# This function is idempotent — running it on an already-patched script is safe.
+patch_activate() {
+    local activate_script="$1"
+    if [ ! -f "$activate_script" ]; then
+        warn "activate script not found at $activate_script — skipping patch."
+        return 0
+    fi
+    # Replace bare $VAR with ${VAR:-} for the four variables that may be unset
+    # when the activate script is first sourced:
+    #   $_OLD_VIRTUAL_PATH       — not yet set on first activation
+    #   $_OLD_VIRTUAL_PYTHONHOME — not yet set on first activation
+    #   $_OLD_VIRTUAL_PS1        — not yet set on first activation
+    #   $PS1                     — not set in non-interactive shells (e.g. systemd)
+    #   $1                       — bare positional inside deactivate() in older templates
+    # We use word-boundary anchors to avoid double-patching ${VAR:-} references.
+    sed -i \
+        -e 's/"\$_OLD_VIRTUAL_PATH"/"\${_OLD_VIRTUAL_PATH:-}"/g' \
+        -e 's/"\$_OLD_VIRTUAL_PYTHONHOME"/"\${_OLD_VIRTUAL_PYTHONHOME:-}"/g' \
+        -e 's/"\$_OLD_VIRTUAL_PS1"/"\${_OLD_VIRTUAL_PS1:-}"/g' \
+        -e 's/"\$PS1"/"\${PS1:-}"/g' \
+        -e 's/\$PS1"/\${PS1:-}"/g' \
+        -e 's/" \$1 "/" \${1:-} "/g' \
+        -e 's/"\$VIRTUAL_ENV_DISABLE_PROMPT"/"\${VIRTUAL_ENV_DISABLE_PROMPT:-}"/g' \
+        "$activate_script"
+    ok "activate script patched for set -u compatibility."
+}
+
 # --- Create virtualenv if not present ---
 if [ ! -d "$SCRIPT_DIR/venv" ]; then
     info "Creating Python virtual environment in ./venv ..."
@@ -107,6 +143,11 @@ if [ ! -d "$SCRIPT_DIR/venv" ]; then
 else
     info "Using existing virtualenv at ./venv"
 fi
+
+# Patch the activate script regardless of whether the venv was just created or
+# already existed — the Moxa device may have an existing venv with the old
+# unguarded script, and patching an already-correct script is harmless.
+patch_activate "$SCRIPT_DIR/venv/bin/activate"
 
 # --- Activate virtualenv ---
 # shellcheck disable=SC1091
