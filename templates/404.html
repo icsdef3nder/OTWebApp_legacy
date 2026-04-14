@@ -1,0 +1,16 @@
+{# 404.html — Not Found error page #}
+{% extends "base.html" %}
+{% block title %}404 Not Found{% endblock %}
+{% block content %}
+<div style="padding: 3rem 1.5rem; text-align: center;">
+    <div style="font-size: 3rem; color: #2a2a4a; font-weight: 700;">404</div>
+    <div style="color: #606080; margin-top: 0.5rem; font-size: 0.9rem;">
+        The requested resource was not found on this server.
+    </div>
+    <div style="margin-top: 1.5rem;">
+        <a href="/" style="color: #00cc66; font-size: 0.82rem; text-decoration: none;">
+            &larr; Return to Dashboard
+        </a>
+    </div>
+</div>
+{% endblock %}

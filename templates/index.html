@@ -1,0 +1,481 @@
+{# =============================================================================
+   index.html — Main Process Dashboard
+   OT/ICS HMI Web Application — Legacy Build for Moxa UC-8220 / Debian 9
+
+   Displays 6 live process gauges reading from the Logix PLC via /api/tags.
+   Gauges are rendered with Chart.js doughnut charts styled to look like
+   industrial analogue instruments. Data refreshes every 2 seconds.
+
+   CHART.JS NOTE:
+     Chart.js 4.4.2 (CDN) is used. This is a browser-side library; it runs in
+     the operator's web browser, not on the UC-8220 server. Chart.js 4.x uses
+     ES6 module syntax in its source but the UMD bundle (chart.umd.min.js)
+     works in all modern browsers via a single <script> tag.
+     The UC-8220 server only serves the HTML — the browser fetches Chart.js
+     directly from the CDN. If the Moxa device is on an air-gapped network,
+     see README_LEGACY.md for offline Chart.js bundling instructions.
+
+   JAVASCRIPT COMPATIBILITY:
+     Uses var (not let/const) and standard XMLHttpRequest (not fetch()) to
+     remain compatible with Firefox ESR 52 / Chromium 57 or newer, which
+     are representative of browsers that may be used on Debian 9 systems.
+     fetch() works in Firefox 52+ but var/XHR is safer for very old browsers.
+   ============================================================================= #}
+{% extends "base.html" %}
+
+{% block title %}Process Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Dashboard-specific layout — 3-column gauge grid */
+    .dashboard-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem 1.5rem 0.5rem;
+        border-bottom: 1px solid #2a2a4a;
+    }
+    .dashboard-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #c0c0d0;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+    .dashboard-subtitle {
+        font-size: 0.75rem;
+        color: #606080;
+        margin-top: 0.15rem;
+    }
+    .last-update {
+        font-size: 0.72rem;
+        color: #505070;
+    }
+    #last-update-time {
+        color: #00cc66;
+    }
+
+    /* Gauge grid */
+    .gauge-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1.2rem;
+        padding: 1.2rem 1.5rem;
+    }
+
+    @media (max-width: 900px) {
+        .gauge-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 580px) {
+        .gauge-grid { grid-template-columns: 1fr; }
+    }
+
+    /* Individual gauge card */
+    .gauge-card {
+        background: #12122a;
+        border: 1px solid #2a2a4a;
+        border-radius: 6px;
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        position: relative;
+        transition: border-color 0.3s;
+    }
+    .gauge-card.warn  { border-color: #cc8800; }
+    .gauge-card.crit  { border-color: #cc2200; }
+    .gauge-card.stale { border-color: #444466; opacity: 0.7; }
+
+    .gauge-tag-name {
+        font-size: 0.7rem;
+        color: #606080;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin-bottom: 0.4rem;
+        align-self: flex-start;
+    }
+
+    .gauge-canvas-wrap {
+        position: relative;
+        width: 160px;
+        height: 160px;
+    }
+
+    /* Value readout centred inside the doughnut hole */
+    .gauge-center-value {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        pointer-events: none;
+    }
+    .gauge-value-num {
+        display: block;
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: #00ff88;
+        font-variant-numeric: tabular-nums;
+        line-height: 1;
+    }
+    .gauge-value-num.warn { color: #ffaa00; }
+    .gauge-value-num.crit { color: #ff3300; animation: blink 1s step-end infinite; }
+    .gauge-value-unit {
+        display: block;
+        font-size: 0.65rem;
+        color: #8080a0;
+        margin-top: 0.1rem;
+    }
+
+    /* Gauge label below the doughnut */
+    .gauge-label {
+        margin-top: 0.5rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #a0a0c0;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    /* Range bar under the label */
+    .gauge-range {
+        font-size: 0.6rem;
+        color: #404060;
+        margin-top: 0.15rem;
+    }
+
+    /* Status/error badge on the card */
+    .gauge-status-badge {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.6rem;
+        font-size: 0.6rem;
+        font-weight: 700;
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+    .badge-ok   { background: #003322; color: #00cc66; }
+    .badge-warn { background: #332200; color: #ffaa00; }
+    .badge-crit { background: #330000; color: #ff3300; }
+    .badge-err  { background: #222244; color: #8080cc; }
+
+    @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0.3; }
+    }
+
+    /* System status bar at bottom of dashboard */
+    .status-bar {
+        display: flex;
+        gap: 2rem;
+        padding: 0.6rem 1.5rem;
+        border-top: 1px solid #2a2a4a;
+        font-size: 0.72rem;
+        color: #505070;
+    }
+    .status-bar .sb-item { display: flex; gap: 0.4rem; align-items: center; }
+    .status-bar .sb-val  { color: #a0a0c0; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ---- Dashboard header ---- #}
+<div class="dashboard-header">
+    <div>
+        <div class="dashboard-title">Process Overview</div>
+        <div class="dashboard-subtitle">Unit 3 — Water Treatment Plant, Building B</div>
+    </div>
+    <div class="last-update">
+        Last update: <span id="last-update-time">---</span>
+    </div>
+</div>
+
+{# ---- Gauge grid ----
+   Each .gauge-card is rendered empty here; JavaScript populates the
+   Chart.js doughnut and numeric readout after fetching /api/tags.
+   The data-tag attribute links the card to the tag name in the API response.
+   data-min / data-max / data-warn / data-crit come from server-side TAG_RANGES.
+#}
+<div class="gauge-grid">
+    {% for tag_name, ranges in TAG_RANGES.items() %}
+    <div class="gauge-card" id="card-{{ tag_name }}"
+         data-tag="{{ tag_name }}"
+         data-min="{{ ranges.min }}"
+         data-max="{{ ranges.max }}"
+         data-warn="{{ ranges.warn }}"
+         data-crit="{{ ranges.crit }}"
+         data-unit="{{ ranges.unit }}">
+
+        <span class="gauge-tag-name">{{ tag_name }}</span>
+
+        {# Canvas for Chart.js doughnut gauge #}
+        <div class="gauge-canvas-wrap">
+            <canvas id="gauge-{{ tag_name }}" width="160" height="160"></canvas>
+            {# Numeric value overlay #}
+            <div class="gauge-center-value">
+                <span class="gauge-value-num" id="val-{{ tag_name }}">---</span>
+                <span class="gauge-value-unit">{{ ranges.unit }}</span>
+            </div>
+        </div>
+
+        <span class="gauge-label">{{ tag_name | replace('_', ' ') }}</span>
+        <span class="gauge-range">{{ ranges.min }} – {{ ranges.max }} {{ ranges.unit }}</span>
+        <span class="gauge-status-badge badge-err" id="badge-{{ tag_name }}">WAIT</span>
+    </div>
+    {% endfor %}
+</div>
+
+{# ---- System status bar ---- #}
+<div class="status-bar">
+    <div class="sb-item">
+        PLC: <span class="sb-val" id="sb-plc-ip">{{ plc_ip }}</span>
+    </div>
+    <div class="sb-item">
+        Connection: <span class="sb-val" id="sb-conn-state">—</span>
+    </div>
+    <div class="sb-item">
+        Poll errors: <span class="sb-val" id="sb-errors">—</span>
+    </div>
+    <div class="sb-item">
+        Scan: <span class="sb-val">{{ (TAG_RANGES | length) }} tags / 2s</span>
+    </div>
+</div>
+
+{% endblock %}
+
+
+{% block extra_js %}
+{#
+   Chart.js UMD bundle — loaded from CDN (requires internet access on the
+   operator workstation browser, NOT on the UC-8220 server itself).
+   For air-gapped deployments, download chart.umd.min.js and place it in
+   static/js/, then change the src below to "/static/js/chart.umd.min.js".
+   See README_LEGACY.md for offline installation instructions.
+#}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+
+<script>
+// =============================================================================
+// Dashboard gauge controller
+// Polls /api/tags every 2 seconds and updates Chart.js doughnut gauges.
+//
+// JAVASCRIPT COMPATIBILITY NOTE (Debian 9 / legacy browsers):
+//   Uses var declarations instead of let/const throughout.
+//   Uses XMLHttpRequest instead of fetch() for maximum browser compatibility.
+//   Arrow functions (=>) are avoided in favour of named functions.
+//   These changes ensure the code runs correctly in Firefox ESR 52 / Chromium 57.
+// =============================================================================
+
+// ---- Gauge registry: tag name -> { chart, card, valueEl, badgeEl, min, max, warn, crit } ----
+var gauges = {};
+
+// Doughnut chart colour stops:
+//   green (ok) -> amber (warn) -> red (crit) -> grey remainder
+var COLOR_OK   = '#00cc66';
+var COLOR_WARN = '#ffaa00';
+var COLOR_CRIT = '#cc2200';
+var COLOR_BG   = '#1e1e3a';  // unfilled portion of the gauge arc
+
+// Track last-known connected state for nav dot updates
+var lastConnected = null;
+
+
+// ---- Initialise all gauges from server-rendered data attributes ----
+function initGauges() {
+    var cards = document.querySelectorAll('.gauge-card');
+    for (var i = 0; i < cards.length; i++) {
+        (function(card) {
+            var tag  = card.getAttribute('data-tag');
+            var min  = parseFloat(card.getAttribute('data-min'));
+            var max  = parseFloat(card.getAttribute('data-max'));
+            var warn = parseFloat(card.getAttribute('data-warn'));
+            var crit = parseFloat(card.getAttribute('data-crit'));
+
+            var canvas = document.getElementById('gauge-' + tag);
+            var ctx    = canvas.getContext('2d');
+
+            // Doughnut chart configured as a semicircular (180 degree) gauge.
+            // rotation: -90 starts the arc at the 9 o'clock position.
+            // circumference: 180 degrees = half circle.
+            var chart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    datasets: [{
+                        data: [0, max - min],         // [filled, unfilled]
+                        backgroundColor: [COLOR_OK, COLOR_BG],
+                        borderWidth: 0,
+                        hoverOffset: 0
+                    }]
+                },
+                options: {
+                    rotation: -90,
+                    circumference: 180,
+                    cutout: '72%',           // doughnut hole size
+                    responsive: false,
+                    animation: {
+                        duration: 400,       // smooth transition between readings
+                        easing: 'easeInOutQuad'
+                    },
+                    plugins: {
+                        legend:  { display: false },
+                        tooltip: { enabled: false }
+                    }
+                }
+            });
+
+            gauges[tag] = {
+                chart:   chart,
+                card:    card,
+                valueEl: document.getElementById('val-'   + tag),
+                badgeEl: document.getElementById('badge-' + tag),
+                min: min,
+                max: max,
+                warn: warn,
+                crit: crit
+            };
+        })(cards[i]);
+    }
+}
+
+
+// ---- Update a single gauge with a new value ----
+function updateGauge(tag, value) {
+    var g = gauges[tag];
+    if (!g) return;
+
+    var chart   = g.chart;
+    var card    = g.card;
+    var valueEl = g.valueEl;
+    var badgeEl = g.badgeEl;
+    var min     = g.min;
+    var max     = g.max;
+    var warn    = g.warn;
+    var crit    = g.crit;
+
+    // Clamp value to [min, max] for gauge rendering
+    var clamped = Math.max(min, Math.min(max, value));
+    var filled  = clamped - min;
+    var empty   = max - clamped;
+
+    // Choose colour based on thresholds
+    var colour, level;
+    if (clamped >= crit) {
+        colour = COLOR_CRIT; level = 'crit';
+    } else if (clamped >= warn) {
+        colour = COLOR_WARN; level = 'warn';
+    } else {
+        colour = COLOR_OK;   level = 'ok';
+    }
+
+    // Update Chart.js dataset
+    chart.data.datasets[0].data             = [filled, empty];
+    chart.data.datasets[0].backgroundColor  = [colour, COLOR_BG];
+    chart.update('active');
+
+    // Update numeric readout
+    valueEl.textContent = value.toFixed(1);
+    valueEl.className   = 'gauge-value-num' + (level !== 'ok' ? ' ' + level : '');
+
+    // Update card border and badge
+    card.className  = 'gauge-card ' + (level !== 'ok' ? level : '');
+    badgeEl.className = 'gauge-status-badge badge-' + level;
+    badgeEl.textContent = level.toUpperCase();
+}
+
+
+// ---- Fetch tag data from /api/tags and refresh all gauges ----
+// Uses XMLHttpRequest for maximum browser compatibility on Debian 9 systems.
+function pollTags() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/tags', true);
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState !== 4) return;
+
+        if (xhr.status !== 200) {
+            console.warn('Tag poll HTTP error:', xhr.status);
+            updateNavConn(false);
+            return;
+        }
+
+        var data;
+        try {
+            data = JSON.parse(xhr.responseText);
+        } catch (e) {
+            console.warn('Tag poll JSON parse error:', e);
+            updateNavConn(false);
+            return;
+        }
+
+        // Update gauges
+        var values = data.values || {};
+        var tagKeys = Object.keys(values);
+        for (var i = 0; i < tagKeys.length; i++) {
+            updateGauge(tagKeys[i], values[tagKeys[i]]);
+        }
+
+        // Update last-update timestamp
+        var now = new Date();
+        var el  = document.getElementById('last-update-time');
+        if (el) el.textContent = now.toLocaleTimeString('en-GB', {hour12: false});
+
+        // Update status bar connection state
+        var sbConn = document.getElementById('sb-conn-state');
+        if (sbConn) {
+            sbConn.textContent  = data.connected ? 'ONLINE' : 'OFFLINE';
+            sbConn.style.color  = data.connected ? '#00cc66' : '#cc4400';
+        }
+
+        // Update error count
+        var errCount = Object.keys(data.tag_errors || {}).length;
+        var sbErr = document.getElementById('sb-errors');
+        if (sbErr) {
+            sbErr.textContent = errCount > 0 ? errCount + ' tag(s)' : 'None';
+            sbErr.style.color = errCount > 0 ? '#ffaa00' : '#00cc66';
+        }
+
+        // Update nav connection indicator
+        updateNavConn(data.connected);
+    };
+
+    xhr.onerror = function() {
+        console.warn('Tag poll network error');
+        updateNavConn(false);
+    };
+
+    xhr.send();
+}
+
+
+// ---- Update the navbar connection dot / text ----
+function updateNavConn(connected) {
+    if (connected === lastConnected) return;
+    lastConnected = connected;
+
+    var dot  = document.getElementById('nav-conn-dot');
+    var text = document.getElementById('nav-conn-text');
+    if (!dot || !text) return;
+
+    if (connected) {
+        dot.className    = 'conn-dot conn-ok';
+        text.textContent = 'PLC Online';
+        text.style.color = '#00cc66';
+    } else {
+        dot.className    = 'conn-dot conn-err';
+        text.textContent = 'PLC Offline';
+        text.style.color = '#cc4400';
+    }
+}
+
+
+// ---- Bootstrap ----
+// DOMContentLoaded fires once the HTML is parsed; safe for all browsers.
+document.addEventListener('DOMContentLoaded', function() {
+    initGauges();
+    pollTags();                          // immediate first poll
+    setInterval(pollTags, 2000);         // then every 2 seconds
+});
+</script>
+{% endblock %}

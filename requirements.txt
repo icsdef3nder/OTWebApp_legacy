@@ -1,0 +1,55 @@
+# =============================================================================
+# requirements.txt — Python dependencies (Debian 9 / Python 3.5 compatible)
+# OT/ICS HMI Web Application — Legacy Build for Moxa UC-8220
+#
+# Target:  Debian 9 (Stretch), Python 3.5.3, pip 9.x / pip 18.x
+# Install: pip3 install -r requirements.txt
+#
+# VERSION RATIONALE
+# -----------------
+# Flask 1.1.4
+#   Last Flask 1.x release. Flask 2.0+ requires Python 3.6+.
+#   Flask 1.1.x depends on Werkzeug <2.0 and Jinja2 <3.0, both of which
+#   still support Python 3.5.
+#
+# pylogix 0.8.13
+#   pylogix 0.9.x and 1.x introduce f-strings and other Python 3.6+
+#   constructs. 0.8.x is the last series tested on Python 3.5.
+#   Uses CIP Read_Tag / Write_Tag over EtherNet/IP explicit messaging.
+#   Supports ControlLogix, CompactLogix, GuardLogix, and Micro8xx PLCs.
+#
+# python-dotenv 0.15.0
+#   python-dotenv 0.16+ and 1.x require Python 3.8+.
+#   0.15.0 is the last release with Python 3.5 compatibility.
+#
+# Werkzeug 1.0.1
+#   Pinned explicitly to avoid pip resolving to Werkzeug 2.x which
+#   Flask 1.x does not support.
+#
+# Jinja2 2.11.3
+#   Last Jinja2 2.x release. Jinja2 3.x requires Python 3.6+.
+#   Pinned to prevent automatic upgrade by pip.
+#
+# itsdangerous 1.1.0
+#   Flask 1.x session signing dependency. itsdangerous 2.x requires Py3.6+.
+#
+# click 7.1.2
+#   Flask CLI dependency. click 8.x requires Python 3.6+.
+# =============================================================================
+
+# Web framework — Flask 1.x, last series supporting Python 3.5
+Flask==1.1.4
+
+# Hard-pin Flask's sub-dependencies to 3.5-compatible versions
+Werkzeug==1.0.1
+Jinja2==2.11.3
+itsdangerous==1.1.0
+click==7.1.2
+MarkupSafe==1.1.1
+
+# EtherNet/IP / CIP driver for Rockwell Logix PLCs
+# Supports Read_Tag, Write_Tag, and Multi-Service batched reads
+pylogix==0.8.13
+
+# .env file loader — 0.15.x is the last Python 3.5 compatible release
+python-dotenv==0.15.0

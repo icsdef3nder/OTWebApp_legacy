@@ -1,0 +1,66 @@
+# =============================================================================
+# ot-hmi.service — systemd unit file
+# OT/ICS HMI Web Application — Legacy Build for Moxa UC-8220 / Debian 9
+#
+# Installation:
+#   sudo cp systemd/ot-hmi.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable ot-hmi
+#   sudo systemctl start ot-hmi
+#
+# Status:
+#   sudo systemctl status ot-hmi
+#   sudo journalctl -u ot-hmi -f
+#
+# NOTE: Edit WorkingDirectory, ExecStart, and EnvironmentFile to match
+#       your actual installation path if it differs from /opt/OTWebApp_legacy.
+#
+# DEBIAN 9 COMPATIBILITY:
+#   systemd is available on Debian 9 (version 232).
+#   The unit file uses only features present in systemd 232.
+#   RestartSec=5 prevents rapid restart storms on repeated failures.
+# =============================================================================
+
+[Unit]
+Description=SCADA HMI OT Security Training Lab (Legacy Build / Debian 9)
+Documentation=file:///opt/OTWebApp_legacy/README_LEGACY.md
+After=network.target
+Wants=network.target
+
+[Service]
+# ---- Process identity ----
+# Change 'ot-hmi' to a dedicated service account if available.
+# The application does not require root; running as a limited user is recommended.
+Type=simple
+User=root
+Group=root
+
+# ---- Working directory and startup command ----
+# Update these paths to match your installation location.
+WorkingDirectory=/opt/OTWebApp_legacy
+ExecStart=/opt/OTWebApp_legacy/venv/bin/python3 /opt/OTWebApp_legacy/app.py
+
+# ---- Environment ----
+# Load .env file for PLC_IP, POLL_INTERVAL, DEBUG, etc.
+EnvironmentFile=/opt/OTWebApp_legacy/.env
+
+# ---- Restart behaviour ----
+# Restart the service if it exits abnormally (crash, OOM, etc.)
+# on-failure does NOT restart on clean exit (code 0) or SIGTERM.
+Restart=on-failure
+RestartSec=5
+
+# ---- Output ----
+# Send stdout/stderr to the systemd journal.
+# Retrieve with: journalctl -u ot-hmi [-f]
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ot-hmi-legacy
+
+# ---- Resource limits (optional, tune for UC-8220 hardware) ----
+# UC-8220 has limited RAM — adjust LimitNOFILE if running many connections.
+# LimitNOFILE=1024
+
+[Install]
+# Start on boot when the default multi-user target is reached
+WantedBy=multi-user.target

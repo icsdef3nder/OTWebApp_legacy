@@ -1,0 +1,85 @@
+{# =============================================================================
+   base.html — Base Jinja2 template
+   OT/ICS HMI Web Application — Legacy Build for Moxa UC-8220 / Debian 9
+
+   Provides the common HTML skeleton, dark industrial theme, nav bar,
+   and shared CSS/JS includes. All pages extend this template.
+
+   JINJA2 COMPATIBILITY: Uses Jinja2 2.11.x syntax (Flask 1.1.4 dependency).
+   No Jinja2 3.x-only features are used — fully backward compatible.
+   ============================================================================= #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    {# Page title injected by child templates #}
+    <title>{% block title %}Acme Process Control{% endblock %} — SCADA HMI v2.3</title>
+
+    {# Favicon — simple inline SVG gauge icon #}
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='%231a1a2e'/><circle cx='50' cy='50' r='30' fill='none' stroke='%2300ff88' stroke-width='6'/><line x1='50' y1='50' x2='75' y2='30' stroke='%23ff8800' stroke-width='4' stroke-linecap='round'/></svg>">
+
+    {# Shared stylesheet #}
+    <link rel="stylesheet" href="/static/css/style.css">
+
+    {# Per-page additional styles #}
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+{# ============================================================
+   Top navigation bar
+   ============================================================ #}
+<nav class="navbar">
+    <div class="nav-brand">
+        <span class="nav-logo">&#9881;</span>
+        <span class="nav-title">ACME INDUSTRIES — SCADA / HMI</span>
+    </div>
+    <div class="nav-status">
+        {# Live connection indicator — updated by JS on dashboard, static elsewhere #}
+        <span id="nav-conn-dot" class="conn-dot conn-unknown"></span>
+        <span id="nav-conn-text" class="conn-text">Checking...</span>
+        <span class="nav-sep">|</span>
+        <span class="nav-clock" id="nav-clock">--:--:--</span>
+    </div>
+</nav>
+
+{# ============================================================
+   Page content injected here
+   ============================================================ #}
+<main class="main-content">
+    {% block content %}{% endblock %}
+</main>
+
+{# ============================================================
+   Footer
+   ============================================================ #}
+<footer class="footer">
+    <span>SCADA HMI v2.3.1</span>
+    <span class="footer-sep">|</span>
+    <span>Acme Industries Process Control Division</span>
+    <span class="footer-sep">|</span>
+    <span>PLC: {{ plc_ip if plc_ip is defined else 'N/A' }}</span>
+</footer>
+
+{# Live clock script — shared across all pages.
+   Uses standard Date() API — compatible with all browsers including
+   older versions shipped with Debian 9's default Firefox ESR 52. #}
+<script>
+    // Update the nav clock every second using local browser time
+    (function updateClock() {
+        var el = document.getElementById('nav-clock');
+        if (el) {
+            var now = new Date();
+            // toLocaleTimeString with locale options — supported in Firefox 52+
+            el.textContent = now.toLocaleTimeString('en-GB', {hour12: false});
+        }
+        setTimeout(updateClock, 1000);
+    })();
+</script>
+
+{# Per-page scripts #}
+{% block extra_js %}{% endblock %}
+</body>
+</html>

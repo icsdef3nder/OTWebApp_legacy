@@ -1,0 +1,16 @@
+{# 500.html — Internal Server Error page #}
+{% extends "base.html" %}
+{% block title %}500 Internal Error{% endblock %}
+{% block content %}
+<div style="padding: 3rem 1.5rem; text-align: center;">
+    <div style="font-size: 3rem; color: #2a2a4a; font-weight: 700;">500</div>
+    <div style="color: #cc4400; margin-top: 0.5rem; font-size: 0.9rem;">
+        An internal server error occurred. Please contact the system administrator.
+    </div>
+    <div style="margin-top: 1.5rem;">
+        <a href="/" style="color: #00cc66; font-size: 0.82rem; text-decoration: none;">
+            &larr; Return to Dashboard
+        </a>
+    </div>
+</div>
+{% endblock %}
