@@ -186,16 +186,22 @@ patch_activate() {
     #   $_OLD_VIRTUAL_PS1        — not yet set on first activation
     #   $PS1                     — not set in non-interactive shells (systemd, etc.)
     #   $1                       — bare positional inside deactivate() in older templates
+    #   $PYTHONHOME              — typically unset; Py3.5 activate tests it bare with
+    #                              [ -n "$PYTHONHOME" ] and assigns _OLD_VIRTUAL_PYTHONHOME
+    #                              from it — both references trigger "unbound variable"
+    #                              under set -u when PYTHONHOME is not exported.
+    #                              This is the root cause of:
+    #                                line 50: PYTHONHOME: unbound variable
     # Word-boundary anchors prevent double-patching ${VAR:-} that is already correct.
-    # NOTE: "$ZSH_VERSION" must be listed explicitly — the Python 3.5 venv activate
-    # template emits  PS1="$ZSH_VERSION"  (bare, unquoted-expand form) on line ~20
-    # of the generated script.  Under set -u this is fatal when ZSH_VERSION is unset
-    # (which it always is in bash).  The ${ZSH_VERSION:-} form expands to an empty
-    # string when the variable is unset, which is the correct behaviour.
+    # NOTE: "$ZSH_VERSION" must be listed explicitly — some venv activate templates
+    # emit a bare "$ZSH_VERSION" reference.  Under set -u this is fatal when
+    # ZSH_VERSION is unset (which it always is in bash).  The ${ZSH_VERSION:-} form
+    # expands to an empty string when the variable is unset, which is correct.
     sed -i \
         -e 's/"\$_OLD_VIRTUAL_PATH"/"\${_OLD_VIRTUAL_PATH:-}"/g' \
         -e 's/"\$_OLD_VIRTUAL_PYTHONHOME"/"\${_OLD_VIRTUAL_PYTHONHOME:-}"/g' \
         -e 's/"\$_OLD_VIRTUAL_PS1"/"\${_OLD_VIRTUAL_PS1:-}"/g' \
+        -e 's/"\$PYTHONHOME"/"\${PYTHONHOME:-}"/g' \
         -e 's/"\$PS1"/"\${PS1:-}"/g' \
         -e 's/\$PS1"/\${PS1:-}"/g' \
         -e 's/" \$1 "/" \${1:-} "/g' \

@@ -103,23 +103,29 @@ patch_activate() {
         warn "activate script not found at $activate_script — skipping patch."
         return 0
     fi
-    # Replace bare $VAR with ${VAR:-} for the four variables that may be unset
+    # Replace bare $VAR with ${VAR:-} for the variables that may be unset
     # when the activate script is first sourced:
     #   $_OLD_VIRTUAL_PATH       — not yet set on first activation
     #   $_OLD_VIRTUAL_PYTHONHOME — not yet set on first activation
     #   $_OLD_VIRTUAL_PS1        — not yet set on first activation
     #   $PS1                     — not set in non-interactive shells (e.g. systemd)
     #   $1                       — bare positional inside deactivate() in older templates
+    #   $PYTHONHOME              — typically unset; Py3.5 activate tests it bare with
+    #                              [ -n "$PYTHONHOME" ] and assigns _OLD_VIRTUAL_PYTHONHOME
+    #                              from it — both references trigger "unbound variable"
+    #                              under set -u when PYTHONHOME is not exported.
+    #                              This is the root cause of:
+    #                                line 50: PYTHONHOME: unbound variable
     # We use word-boundary anchors to avoid double-patching ${VAR:-} references.
-    # NOTE: "$ZSH_VERSION" must be listed explicitly — the Python 3.5 venv activate
-    # template emits  PS1="$ZSH_VERSION"  (bare, unquoted-expand form) on line ~20
-    # of the generated script.  Under set -u this is fatal when ZSH_VERSION is unset
-    # (which it always is in bash).  The ${ZSH_VERSION:-} form expands to an empty
-    # string when the variable is unset, which is the correct behaviour.
+    # NOTE: "$ZSH_VERSION" must be listed explicitly — some venv activate templates
+    # emit a bare "$ZSH_VERSION" reference.  Under set -u this is fatal when
+    # ZSH_VERSION is unset (which it always is in bash).  The ${ZSH_VERSION:-} form
+    # expands to an empty string when the variable is unset, which is correct.
     sed -i \
         -e 's/"\$_OLD_VIRTUAL_PATH"/"\${_OLD_VIRTUAL_PATH:-}"/g' \
         -e 's/"\$_OLD_VIRTUAL_PYTHONHOME"/"\${_OLD_VIRTUAL_PYTHONHOME:-}"/g' \
         -e 's/"\$_OLD_VIRTUAL_PS1"/"\${_OLD_VIRTUAL_PS1:-}"/g' \
+        -e 's/"\$PYTHONHOME"/"\${PYTHONHOME:-}"/g' \
         -e 's/"\$PS1"/"\${PS1:-}"/g' \
         -e 's/\$PS1"/\${PS1:-}"/g' \
         -e 's/" \$1 "/" \${1:-} "/g' \
